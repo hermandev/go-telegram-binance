@@ -1,6 +1,7 @@
 package libs
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -8,10 +9,13 @@ import (
 	"go-telegram-binance/config"
 	"log"
 	"math/big"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
+	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/tg"
 )
 
@@ -48,6 +52,39 @@ func InitTelegramClient(apiID int, apiHash string) *TelegramClient {
 			// Jalankan Telegram Client lebih dulu
 			err := instance.client.Run(ctx, func(ctx context.Context) error {
 				log.Println("✅ Telegram Client Berjalan...")
+
+				status, err := instance.client.Auth().Status(ctx)
+				if err != nil {
+					return fmt.Errorf("gagal cek status login: %w", err)
+				}
+
+				if !status.Authorized {
+					log.Println("⚠️ Anda belum login. Silakan login terlebih dahulu.")
+					var phone string
+					fmt.Print("Masukkan nomor HP Anda (misalnya: +6281234567890): ")
+					fmt.Scanln(&phone)
+
+					var password string
+					fmt.Print("Masukkan password jika memiliki password : ")
+					fmt.Scanln(&password)
+
+					codePrompt := func(ctx context.Context, sentCode *tg.AuthSentCode) (string, error) {
+						// NB: Use "golang.org/x/crypto/ssh/terminal" to prompt password.
+						fmt.Print("Enter code: ")
+						code, err := bufio.NewReader(os.Stdin).ReadString('\n')
+						if err != nil {
+							return "", err
+						}
+						return strings.TrimSpace(code), nil
+					}
+
+					if err := auth.NewFlow(
+						auth.Constant(phone, password, auth.CodeAuthenticatorFunc(codePrompt)),
+						auth.SendCodeOptions{},
+					).Run(ctx, instance.client.Auth()); err != nil {
+						panic(err)
+					}
+				}
 
 				// Resolve username to get channel information
 				resolved, err := instance.client.API().ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{
